@@ -1,173 +1,112 @@
 ---
+metadata:
+  author: "Bigcent"
+  tags: ["defi", "hodlmm", "liquidity", "monitoring", "bitflow", "stacks"]
+  entry: "hodlmm-lp-monitor/hodlmm-lp-monitor.ts"
 name: hodlmm-lp-monitor
-description: "Monitors and analyzes Bitflow HODLMM concentrated liquidity positions on Stacks. Use when user asks to \"check my LP position\", \"monitor HODLMM pools\", \"analyze liquidity bins\", \"check pool performance\", \"rebalance strategy\", \"HODLMM yield\", \"concentrated liquidity status\", \"Bitflow LP\", or \"pool health check\". Fetches on-chain data from Bitflow HODLMM pools, evaluates bin utilization, estimates yield, and recommends rebalancing actions."
+description: "Monitors and analyzes Bitflow HODLMM concentrated liquidity positions on Stacks. Use when user asks to check LP position, monitor HODLMM pools, analyze liquidity bins, check pool performance, rebalance strategy, HODLMM yield, concentrated liquidity status, Bitflow LP, or pool health check."
 ---
 
 # HODLMM LP Position Monitor
 
-## Overview
+## What it does
 
-This skill monitors Bitflow HODLMM concentrated liquidity positions on the Stacks blockchain. It fetches pool data, analyzes bin distribution and utilization, estimates current yield performance, and provides actionable rebalancing recommendations. Designed for AI agents managing DeFi positions on Bitcoin L2.
+Fetches on-chain data from Bitflow HODLMM concentrated liquidity pools, evaluates bin distribution and utilization, estimates current yield performance, and provides actionable rebalancing recommendations. Returns a structured health report for any HODLMM LP position including fee APR, stacking yield, capital efficiency score, and rebalance status.
 
-## When to Use
+## Why agents need it
 
-- User wants to check health/performance of their HODLMM LP position
-- User asks about current pool conditions (volume, TVL, active bins)
-- User wants rebalancing advice based on price movement
-- User needs yield comparison across HODLMM pools
-- Automated periodic position health checks
+HODLMM concentrated liquidity positions require active monitoring. Unlike standard AMMs, concentrated liquidity earns zero fees when price moves outside your bins. An agent managing DeFi positions needs to detect out-of-range conditions quickly, estimate yield loss from inactive bins, and recommend rebalancing actions before capital sits idle. This skill automates that entire monitoring loop.
 
-## Prerequisites
+## Safety notes
 
-- Agent must have AIBTC MCP tools installed (`npx @aibtc/mcp-server`)
-- Agent must have a registered and unlocked Stacks wallet
-- Access to Bitflow API endpoints
+- This skill only reads on-chain data. It does not execute trades or move funds.
+- Rebalancing recommendations are suggestions only. The agent must confirm with the operator before executing any position changes.
+- Yield estimates are based on recent data and are not guaranteed. Past performance does not predict future returns.
+- Always verify pool contract addresses against the official Bitflow documentation before interacting.
+- Never expose wallet private keys or seed phrases in logs or output.
 
-## Step 1: Fetch Available HODLMM Pools
+## Commands
 
-Query the Bitflow API for active HODLMM pools:
+### `doctor`
 
-```bash
-curl -s "https://app.bitflow.finance/api/pools" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for pool in data:
-    if pool.get('type') == 'hodlmm' or 'hodlmm' in pool.get('name','').lower():
-        print(f\"Pool: {pool['name']} | TVL: {pool.get('tvl','N/A')} | Volume 24h: {pool.get('volume24h','N/A')}\")
-"
+Checks environment readiness: verifies AIBTC MCP tools are installed, wallet is unlocked, and Bitflow API endpoints are reachable.
+
+**Input:** None
+
+**Output:**
+```json
+{
+  "result": "ready",
+  "wallet": "unlocked",
+  "bitflowApi": "reachable",
+  "stacksApi": "reachable"
+}
 ```
 
-If the above endpoint is unavailable, check these alternatives:
-- `https://api.bitflow.finance/v1/pools`
-- `https://app.bitflow.finance/api/v1/hodlmm/pools`
+### `run`
 
-Document which pools are active and their current stats.
+Executes the full position monitoring flow: fetches pool data, analyzes bin utilization, calculates yield, and generates a health report with rebalancing recommendation.
 
-## Step 2: Analyze Position Bin Distribution
+**Input:**
+- `--address <stx-address>` — Stacks address of the LP to monitor
+- `--pool <pool-slug>` — (optional) Filter to a specific HODLMM pool
 
-For a given pool and user address, check the bin layout:
-
-```bash
-# Fetch user's LP position details
-curl -s "https://app.bitflow.finance/api/hodlmm/positions?address=${STX_ADDRESS}" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for pos in data:
-    print(f\"Pool: {pos.get('pool','unknown')}\")
-    print(f\"Strategy: {pos.get('strategy','unknown')}\")
-    print(f\"Bins: {pos.get('activeBins','N/A')}\")
-    print(f\"In Range: {pos.get('inRange', 'unknown')}\")
-    print(f\"Value: {pos.get('totalValue','N/A')}\")
-    print(f\"Unclaimed Fees: {pos.get('unclaimedFees','N/A')}\")
-    print('---')
-"
+**Output:**
+```json
+{
+  "pool": "sBTC/USDCx",
+  "strategy": "spot",
+  "positionValue": 5000,
+  "currentPrice": 84500,
+  "rangeMin": 82000,
+  "rangeMax": 87000,
+  "inRange": true,
+  "activeBins": 12,
+  "totalBins": 15,
+  "binUtilization": 0.8,
+  "feeRevenue24h": 4.25,
+  "feeAPR": 31.02,
+  "stackingYield": 4.0,
+  "combinedAPR": 35.02,
+  "capitalEfficiency": 3.2,
+  "rebalanceStatus": "OK",
+  "recommendation": "Hold and monitor. Next check in 24h."
+}
 ```
 
-Key metrics to evaluate:
-- **In Range**: Is the current price within the user's liquidity bins?
-- **Bin Utilization**: What percentage of bins are actively earning fees?
-- **Concentration Score**: How tightly concentrated is the liquidity vs the trading range?
+### Rebalance Status Values
 
-## Step 3: Evaluate Yield Performance
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `OK` | Price within active bins, earning fees | No action needed |
+| `ATTENTION` | Price at edge of range, some bins inactive | Consider adjusting range |
+| `ACTION_NEEDED` | Price outside all bins, earning zero fees | Rebalance recommended |
 
-Calculate and report yield metrics:
-
-1. **Fee APR**: (24h fees earned / position value) * 365
-2. **Stacking Yield**: sBTC positions earn ~3-5% annualized from Stacks Dual Stacking
-3. **Combined Yield**: Fee APR + Stacking Yield
-4. **Capital Efficiency**: Compare yield-per-dollar vs a standard AMM position
-
-Present results in this format:
-
-```
-HODLMM Position Health Report
-=============================
-Pool:              sBTC/USDCx
-Strategy:          Spot
-Position Value:    $X,XXX
-Current Price:     $XX,XXX
-Position Range:    $XX,XXX - $XX,XXX
-In Range:          Yes/No
-Active Bins:       X/Y (XX%)
-
-Yield Performance (24h)
------------------------
-Fee Revenue:       $X.XX
-Fee APR:           XX.X%
-Stacking Yield:    ~X.X%
-Combined APR:      XX.X%
-Capital Efficiency: X.Xx vs standard AMM
-
-Rebalance Status:  [OK / ATTENTION / ACTION NEEDED]
-```
-
-## Step 4: Generate Rebalancing Recommendations
-
-Based on the analysis, provide one of these recommendations:
-
-### Position In Range — No Action
-- Current price is within active bins
-- Bins are earning fees efficiently
-- Recommendation: Hold and monitor. Next check in 24h.
-
-### Position Partially Out of Range — Attention
-- Price has moved to the edge of the bin range
-- Some bins are inactive (not earning fees)
-- Recommendation: Consider widening range or shifting bins toward current price.
-- Provide specific bin adjustment: "Shift lower bound from $X to $Y"
-
-### Position Out of Range — Action Needed
-- Current price is outside all active bins
-- Position is earning zero trading fees (may still earn stacking yield on sBTC)
-- Recommendation: Rebalance immediately.
-- Suggest new range centered on current price with appropriate spread based on strategy:
-  - **Spot strategy**: ±2-5% from current price (tight, high yield, frequent rebalance)
-  - **Curve strategy**: ±5-15% (moderate balance)
-  - **Bid-Ask strategy**: ±10-25% (wide, less rebalancing needed)
-
-### Impermanent Loss Warning
-If position has experienced significant IL:
-- Calculate IL percentage vs holding
-- Compare IL against accumulated fees
-- Report net P&L: fees earned minus IL
-
-## Step 5: Set Up Automated Monitoring (Optional)
-
-If the agent has autonomous loop capability, configure periodic checks:
-
-```
-Schedule: Every 4 hours
-Action: Run Steps 1-4
-Alert Conditions:
-  - Position goes out of range → immediate notification
-  - Fee APR drops below 5% → flag for review
-  - Unclaimed fees exceed $10 → suggest harvesting
-  - IL exceeds 2% of position value → warn operator
-```
-
-Use AIBTC heartbeat timing to align monitoring intervals.
-
-## Strategy Selection Guide
-
-Help users pick the right HODLMM strategy for their goals:
+### Strategy Guide
 
 | Strategy | Range Width | Rebalance Frequency | Best For |
 |----------|-------------|---------------------|----------|
-| Spot     | ±2-5%       | Daily               | Active managers, max yield |
-| Curve    | ±5-15%      | Weekly              | Balanced approach |
-| Bid-Ask  | ±10-25%     | Monthly             | Passive LPs, less maintenance |
+| Spot | ±2-5% | Daily | Active managers, max yield |
+| Curve | ±5-15% | Weekly | Balanced approach |
+| Bid-Ask | ±10-25% | Monthly | Passive LPs, less maintenance |
 
-## Error Handling
+## Output contract
 
-- If API returns no data: check if the pool contract is still active on Stacks explorer
-- If position shows $0 value: wallet may not have LP tokens, verify address
-- If yield seems impossibly high: likely low time sample, wait for 24h+ data
-- If Bitflow API is down: fall back to direct Stacks API contract calls
+All commands return valid JSON to stdout. The `run` command returns an object with these guaranteed fields:
 
-## Sources and References
+- `pool` (string) — pool name
+- `inRange` (boolean) — whether current price is within LP bin range
+- `binUtilization` (number, 0-1) — fraction of bins actively earning fees
+- `feeAPR` (number) — annualized fee yield as percentage
+- `combinedAPR` (number) — fee APR plus stacking yield
+- `rebalanceStatus` (string) — one of `OK`, `ATTENTION`, `ACTION_NEEDED`
+- `recommendation` (string) — human-readable next action
 
-- Bitflow HODLMM Documentation: https://docs.bitflow.finance
-- Bitflow Medium (HODLMM explainer): https://bitflowfinance.medium.com
-- BFF Army Education: https://www.bff.army/
-- Stacks API for on-chain verification: https://api.stacks.co
-- AIBTC Skills Registry: https://aibtc.com/skills
+On error, returns `{ "error": "description" }` with a non-zero exit code.
+
+## Data Sources
+
+- Bitflow HODLMM API: `https://app.bitflow.finance/api/pools`
+- Stacks API for on-chain verification: `https://api.stacks.co`
+- AIBTC MCP tools for wallet operations
+- BFF Army education resources: `https://www.bff.army/`
