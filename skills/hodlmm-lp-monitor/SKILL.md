@@ -1,7 +1,7 @@
 ---
 metadata:
   author: "Bigcent"
-  tags: ["defi", "hodlmm", "liquidity", "monitoring", "bitflow", "stacks"]
+  tags: "defi, hodlmm, liquidity, monitoring, bitflow, stacks, read-only, mainnet-only, l2"
   entry: "hodlmm-lp-monitor/hodlmm-lp-monitor.ts"
 name: hodlmm-lp-monitor
 description: "Monitors and analyzes Bitflow HODLMM concentrated liquidity positions on Stacks. Use when user asks to check LP position, monitor HODLMM pools, analyze liquidity bins, check pool performance, rebalance strategy, HODLMM yield, concentrated liquidity status, Bitflow LP, or pool health check."
